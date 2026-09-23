@@ -85,7 +85,7 @@ async function coletar(page, termo) {
   }
   await ctx.close();
 
-  const arq = path.join(__dirname, '..', 'public', 'data.json');
+  const arq = path.join(__dirname, '..', 'data', 'data.json');
   let base = { rodada: 0, atualizadoEm: null, ads: [] };
   try { base = JSON.parse(fs.readFileSync(arq, 'utf8')); } catch {}
   const agora = new Date().toISOString();
@@ -98,5 +98,5 @@ async function coletar(page, termo) {
   // Mantém só o que apareceu nas últimas 10 rodadas, para o arquivo não crescer sem limite.
   const ads = [...antigos.values()].filter(a => rodada - a.rodada < 10);
   fs.writeFileSync(arq, JSON.stringify({ rodada, atualizadoEm: agora, ads }));
-  console.log(`\nPronto: ${todos.length} anúncios nesta rodada, ${ads.length} no histórico. Dados em public/data.json`);
+  console.log(`\nPronto: ${todos.length} anúncios nesta rodada, ${ads.length} no histórico. Dados em data/data.json`);
 })();

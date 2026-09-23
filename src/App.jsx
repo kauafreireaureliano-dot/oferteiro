@@ -63,6 +63,7 @@ function useFavoritos() {
 export default function App() {
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState(false);
+  const [logado, setLogado] = useState(null);
   const [busca, setBusca] = useState('');
   const [minDias, setMinDias] = useState(30);
   const [minAtivos, setMinAtivos] = useState(2);
@@ -74,9 +75,15 @@ export default function App() {
   const [aberto, setAberto] = useState(null);
   const [fav, toggleFav] = useFavoritos();
 
-  useEffect(() => {
-    fetch('/data.json?' + Date.now()).then(r => r.json()).then(setDados).catch(() => setErro(true));
-  }, []);
+  const carregar = () => {
+    fetch('/api/data').then(r => {
+      if (r.status === 401) { setLogado(false); return null; }
+      if (!r.ok) throw new Error();
+      return r.json();
+    }).then(d => { if (d) { setDados(d); setLogado(true); } }).catch(() => setErro(true));
+  };
+  useEffect(carregar, []);
+  const sair = () => fetch('/api/logout', { method: 'POST' }).then(() => { setDados(null); setLogado(false); });
 
   const grupos = useMemo(() => {
     if (!dados) return [];
@@ -97,6 +104,7 @@ export default function App() {
       .sort(ORDENS[ordem][1]);
   }, [grupos, busca, minDias, minAtivos, tipo, soNovas, soFav, ordem, fav]);
 
+  if (logado === false) return <Login onOk={carregar} />;
   if (erro) return <p className="vazio">Não consegui carregar o data.json.</p>;
   if (!dados) return <p className="vazio">Carregando...</p>;
 
@@ -106,6 +114,7 @@ export default function App() {
     <div className="app">
       <header>
         <h1>Oferteiro</h1>
+        <button className="sair" onClick={sair}>Sair</button>
         <span className="sub">{lista.length} de {grupos.length} ofertas · rodada {dados.rodada} · atualizado {atualizado}</span>
       </header>
 
@@ -168,5 +177,30 @@ export default function App() {
         ))}
       </div>
     </div>
+  );
+}
+
+function Login({ onOk }) {
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [msg, setMsg] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const entrar = async e => {
+    e.preventDefault(); setEnviando(true); setMsg('');
+    try {
+      const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, senha }) });
+      if (r.ok) return onOk();
+      setMsg((await r.json().catch(() => ({}))).erro || 'Erro ao entrar.');
+    } catch { setMsg('Sem conexão.'); }
+    setEnviando(false);
+  };
+  return (
+    <form className="login" onSubmit={entrar}>
+      <h1>Oferteiro</h1>
+      <input type="email" placeholder="E-mail" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required />
+      <input type="password" placeholder="Senha" autoComplete="current-password" value={senha} onChange={e => setSenha(e.target.value)} required />
+      <button disabled={enviando}>{enviando ? 'Entrando...' : 'Entrar'}</button>
+      {msg && <p className="erro">{msg}</p>}
+    </form>
   );
 }

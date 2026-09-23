@@ -8,7 +8,7 @@ cd ..
 echo.
 set /p SUBIR="=== 2/2 Enviar para o dashboard (GitHub/Vercel)? (s/n): "
 if /i "%SUBIR%"=="s" (
-  git add public/data.json
+  git add data/data.json
   git commit -m "Atualiza ofertas"
   git push
   echo Enviado. A Vercel publica em ~1 minuto.
