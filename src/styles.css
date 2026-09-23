@@ -39,3 +39,7 @@ input[type=number] { width:80px; }
 .login .erro { color:#ff6b6b; margin:0; text-align:center; }
 .sair { order:3; margin-left:auto; background:none; border:1px solid var(--line); color:var(--mut); border-radius:8px; padding:5px 12px; font:inherit; cursor:pointer; }
 .sair:hover { color:var(--txt); border-color:var(--mut); }
+.nota { display:inline-block; min-width:28px; text-align:center; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:0 6px; margin-right:4px; font-size:13px; color:var(--mut); }
+.nota.alta { background:var(--ok); border-color:var(--ok); color:#000; font-weight:700; }
+.tag.preco { color:var(--warn); border-color:var(--warn); font-weight:600; }
+.motivos { margin:0; font-size:12px; color:var(--ok); }

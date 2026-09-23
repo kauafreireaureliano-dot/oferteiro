@@ -20,7 +20,28 @@ function chaveOferta(a) {
   return 'anunciante:' + (a.anunciante || a.id);
 }
 
-function agrupar(ads, por) {
+const NICHO = /receita|recheio|bolo|doce|sobremesa|marmita|air ?fryer|culin|cozinh|confeit|brigadeiro|salgad|panifica|\bfit\b|low ?carb/i;
+
+function brl(v) { return 'R$ ' + v.toFixed(2).replace('.', ','); }
+
+// Nota 0-100 de "vale modelar": prova de escala (tempo + volume) + página de ticket baixo + funil de venda + nicho.
+function avaliarModelagem(g, pagina) {
+  const motivos = [];
+  let nota = Math.min(g.dias, 180) / 180 * 35 + Math.min(g.ativos, 20) / 20 * 30;
+  if (g.dias >= 60) motivos.push(g.dias + ' dias no ar');
+  if (g.ativos >= 5) motivos.push(g.ativos + ' anúncios ativos');
+  const precos = ((pagina && pagina.precos) || []).filter(v => v >= 1.5);
+  const preco = precos.length ? precos[0] : null;
+  if (preco === null) nota += 6;
+  else if (preco <= 10) { nota += 20; motivos.push('ticket baixo ' + brl(preco)); }
+  else if (preco <= 20) { nota += 14; motivos.push('ticket ' + brl(preco)); }
+  else if (preco <= 40) nota += 6;
+  if (pagina && pagina.checkout) { nota += 8; motivos.push('checkout ' + pagina.checkout.replace(/^(www|pay|checkout)\./, '')); }
+  if (NICHO.test(g.anunciante + ' ' + g.copy + ' ' + ((pagina && pagina.titulo) || ''))) nota += 7;
+  return { nota: Math.round(nota), motivos, preco };
+}
+
+function agrupar(ads, por, paginas) {
   const m = new Map();
   for (const a of ads) {
     const k = por === 'anunciante' ? 'anunciante:' + (a.anunciante || a.id) : chaveOferta(a);
@@ -31,7 +52,7 @@ function agrupar(ads, por) {
     lista.sort((x, y) => y.dias - x.dias);
     const maisAntigo = lista[0];
     const dest = lista.find(a => a.destino)?.destino || '';
-    return {
+    const g = {
       k, lista, ativos: lista.length, dias: maisAntigo.dias,
       anunciante: maisAntigo.anunciante || '(sem nome)',
       copy: lista.find(a => a.copy)?.copy || '',
@@ -39,10 +60,32 @@ function agrupar(ads, por) {
       nova: lista.some(a => a.nova),
       score: Math.min(maisAntigo.dias, 365) + Math.min(lista.length, 60) * 6,
     };
+    g.pagina = lista.map(chaveOferta).map(k => paginas[k]).find(p => p && p.ok) || null;
+    Object.assign(g, avaliarModelagem(g, g.pagina));
+    return g;
   });
 }
 
+// Texto pronto para colar no Claude e pedir a versão original da oferta (página + upsell) no seu funil.
+function briefing(g) {
+  const p = g.pagina || {};
+  return [
+    'OFERTA PARA MODELAR (usar como referência de ângulo e estrutura; escrever tudo original)',
+    'Anunciante: ' + g.anunciante,
+    'Prova de escala: ' + g.ativos + ' anúncios ativos, ' + g.dias + ' dias no ar (nota ' + g.nota + '/100)',
+    'Página: ' + (p.urlFinal || g.destino || '-'),
+    'Título da página: ' + (p.titulo || '-'),
+    'Preço detectado: ' + (g.preco !== null ? brl(g.preco) : 'não identificado') + (p.precos && p.precos.length > 1 ? ' (outros valores na página: ' + p.precos.slice(1).map(brl).join(', ') + ')' : ''),
+    'Checkout: ' + (p.checkout || '-'),
+    'Nº de receitas prometido: ' + (p.nReceitas || '-'),
+    'Tem garantia: ' + (p.garantia ? 'sim' : 'não') + ' | bônus: ' + (p.bonus ? 'sim' : 'não') + ' | vídeo: ' + (p.video ? 'sim' : 'não'),
+    'Copy dos anúncios: ' + (g.copy || '-'),
+    'Criativos (Biblioteca): ' + g.lista.slice(0, 3).map(a => a.link).join(' , '),
+  ].join('\n');
+}
+
 const ORDENS = {
+  modelar: ['Melhores para modelar', (a, b) => b.nota - a.nota || b.dias - a.dias],
   score: ['Melhor score', (a, b) => b.score - a.score],
   ativos: ['Mais anúncios ativos', (a, b) => b.ativos - a.ativos || b.dias - a.dias],
   dias: ['Mais tempo no ar', (a, b) => b.dias - a.dias || b.ativos - a.ativos],
@@ -68,12 +111,17 @@ export default function App() {
   const [minDias, setMinDias] = useState(30);
   const [minAtivos, setMinAtivos] = useState(2);
   const [tipo, setTipo] = useState('todos');
-  const [ordem, setOrdem] = useState('score');
+  const [ordem, setOrdem] = useState('modelar');
+  const [soTicket, setSoTicket] = useState(false);
   const [por, setPor] = useState('oferta');
   const [soNovas, setSoNovas] = useState(false);
   const [soFav, setSoFav] = useState(false);
   const [aberto, setAberto] = useState(null);
   const [fav, toggleFav] = useFavoritos();
+  const [copiado, setCopiado] = useState(null);
+  const copiarBriefing = g => {
+    navigator.clipboard.writeText(briefing(g)).then(() => { setCopiado(g.k); setTimeout(() => setCopiado(null), 2000); });
+  };
 
   const carregar = () => {
     fetch('/api/data').then(r => {
@@ -90,7 +138,7 @@ export default function App() {
     const ativos = dados.ads
       .filter(a => a.rodada === dados.rodada)
       .map(a => ({ ...a, nova: a.rodadaNova === dados.rodada && dados.rodada > 1 }));
-    return agrupar(ativos, por);
+    return agrupar(ativos, por, dados.paginas || {});
   }, [dados, por]);
 
   const lista = useMemo(() => {
@@ -99,10 +147,11 @@ export default function App() {
       .filter(g => g.dias >= minDias && g.ativos >= minAtivos)
       .filter(g => tipo === 'todos' || g.tipo === tipo)
       .filter(g => !soNovas || g.nova)
+      .filter(g => !soTicket || (g.preco !== null && g.preco <= 20))
       .filter(g => !soFav || fav.has(g.k))
       .filter(g => !q || (g.anunciante + ' ' + g.copy + ' ' + g.destino).toLowerCase().includes(q))
       .sort(ORDENS[ordem][1]);
-  }, [grupos, busca, minDias, minAtivos, tipo, soNovas, soFav, ordem, fav]);
+  }, [grupos, busca, minDias, minAtivos, tipo, soNovas, soTicket, soFav, ordem, fav]);
 
   if (logado === false) return <Login onOk={carregar} />;
   if (erro) return <p className="vazio">Não consegui carregar o data.json.</p>;
@@ -138,6 +187,7 @@ export default function App() {
             <option value="anunciante">Anunciante</option>
           </select>
         </label>
+        <label className="chk"><input type="checkbox" checked={soTicket} onChange={e => setSoTicket(e.target.checked)} /> Só ticket baixo (até R$ 20)</label>
         <label className="chk"><input type="checkbox" checked={soNovas} onChange={e => setSoNovas(e.target.checked)} /> Só novas</label>
         <label className="chk"><input type="checkbox" checked={soFav} onChange={e => setSoFav(e.target.checked)} /> Só favoritas</label>
       </section>
@@ -152,19 +202,22 @@ export default function App() {
             </div>
             <div className="corpo">
               <div className="topo">
-                <b>{g.anunciante}</b>
+                <b><span className={'nota' + (g.nota >= 70 ? ' alta' : '')} title="Nota de modelagem (0-100)">{g.nota}</span> {g.anunciante}</b>
                 <button className={'fav' + (fav.has(g.k) ? ' on' : '')} onClick={() => toggleFav(g.k)} title="Favoritar">★</button>
               </div>
               <div className="tags">
                 <span className="tag ativos">{g.ativos} ativos</span>
                 <span className="tag dias">{g.dias} dias</span>
+                {g.preco !== null && <span className="tag preco">{brl(g.preco)}</span>}
                 <span className="tag">{g.tipo}</span>
                 {g.nova && <span className="tag nova">nova</span>}
               </div>
+              {g.motivos.length > 0 && <p className="motivos">Por que modelar: {g.motivos.join(' · ')}</p>}
               <p className="copy">{g.copy.slice(0, 200)}</p>
               <div className="links">
                 <a href={g.lista[0].link} target="_blank" rel="noreferrer">Biblioteca</a>
                 {g.destino && <a href={g.destino} target="_blank" rel="noreferrer">Funil</a>}
+                <button onClick={() => copiarBriefing(g)}>{copiado === g.k ? 'Copiado!' : 'Copiar briefing'}</button>
                 {g.lista.length > 1 && <button onClick={() => setAberto(aberto === g.k ? null : g.k)}>{aberto === g.k ? 'Fechar' : `Ver ${g.lista.length} anúncios`}</button>}
               </div>
               {aberto === g.k && (

@@ -97,6 +97,7 @@ async function coletar(page, termo) {
   }
   // Mantém só o que apareceu nas últimas 10 rodadas, para o arquivo não crescer sem limite.
   const ads = [...antigos.values()].filter(a => rodada - a.rodada < 10);
-  fs.writeFileSync(arq, JSON.stringify({ rodada, atualizadoEm: agora, ads }));
+  fs.writeFileSync(arq, JSON.stringify({ rodada, atualizadoEm: agora, ads, paginas: base.paginas || {} }));
   console.log(`\nPronto: ${todos.length} anúncios nesta rodada, ${ads.length} no histórico. Dados em data/data.json`);
+  await require('./paginas.js').rodar(arq);
 })();
